@@ -11,28 +11,21 @@ import { browserApiRequest } from '@/lib/api/browserClient';
 import { portalPaths } from '@/lib/api/portal-paths';
 import { changePasswordFormSchema } from '@/lib/validation/auth';
 import { z } from 'zod';
-import { phoneRegex, rifRegex } from '@/lib/validation/business';
-import { cedulaRegex } from '@/lib/validation/auth';
+import { cedulaSchema, phoneSchema, rifSchema } from '@/lib/validation/business';
 import { logger } from '@/lib/logger';
 import type { AdminUserView } from '@/lib/settings/user-session';
 import { syncUserSession, toSessionUser } from '@/lib/settings/user-session';
+import { CedulaInput } from '@/components/forms/CedulaInput';
+import { PhoneInput } from '@/components/forms/PhoneInput';
+import { RifInput } from '@/components/forms/RifInput';
+import { formatPhoneInput } from '@/lib/validation/venezuela-phone';
 
 const portalProfileSchema = z.object({
   firstName: z.string().min(2, { message: 'El nombre debe tener al menos 2 caracteres' }),
   lastName: z.string().min(2, { message: 'El apellido debe tener al menos 2 caracteres' }),
-  phoneNumber: z.string().regex(phoneRegex, {
-    message: 'El teléfono debe usar formato internacional (ej: +584121234567)',
-  }),
-  cedula: z
-    .string()
-    .regex(cedulaRegex, { message: 'Formato de cédula inválido (ej: V-12345678)' })
-    .transform((v) => v.toUpperCase()),
-  rif: z
-    .string()
-    .regex(rifRegex, { message: 'Formato de RIF inválido (ej: J-12345678-9)' })
-    .transform((v) => v.toUpperCase())
-    .optional()
-    .or(z.literal('')),
+  phoneNumber: phoneSchema,
+  cedula: cedulaSchema,
+  rif: z.union([rifSchema, z.literal('')]),
 });
 
 interface SettingsFormProps {
@@ -44,7 +37,7 @@ function profileFromUser(user: AdminUserView) {
     firstName: user.firstName,
     lastName: user.lastName,
     email: user.email,
-    phoneNumber: user.phoneNumber,
+    phoneNumber: formatPhoneInput(user.phoneNumber || ''),
     cedula: user.cedula ?? '',
     rif: user.rif ?? '',
   };
@@ -237,38 +230,26 @@ export function SettingsForm({ initialProfile }: SettingsFormProps) {
                 <Input id="email" value={profile.email} disabled />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="cedula">Cédula</Label>
-                  <Input
-                    id="cedula"
-                    value={profile.cedula}
-                    onChange={(e) => setProfile((p) => ({ ...p, cedula: e.target.value }))}
-                  />
-                  {profileErrors.cedula && (
-                    <p className="text-xs text-rose-500">{profileErrors.cedula}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="rif">RIF personal</Label>
-                  <Input
-                    id="rif"
-                    value={profile.rif}
-                    onChange={(e) => setProfile((p) => ({ ...p, rif: e.target.value }))}
-                  />
-                  {profileErrors.rif && <p className="text-xs text-rose-500">{profileErrors.rif}</p>}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phoneNumber">Teléfono</Label>
-                <Input
-                  id="phoneNumber"
-                  value={profile.phoneNumber}
-                  onChange={(e) => setProfile((p) => ({ ...p, phoneNumber: e.target.value }))}
+                <CedulaInput
+                  id="cedula"
+                  value={profile.cedula}
+                  onChange={(cedula) => setProfile((p) => ({ ...p, cedula }))}
+                  error={profileErrors.cedula}
                 />
-                {profileErrors.phoneNumber && (
-                  <p className="text-xs text-rose-500">{profileErrors.phoneNumber}</p>
-                )}
+                <RifInput
+                  id="rif"
+                  label="RIF personal"
+                  value={profile.rif}
+                  onChange={(rif) => setProfile((p) => ({ ...p, rif }))}
+                  error={profileErrors.rif}
+                />
               </div>
+              <PhoneInput
+                id="phoneNumber"
+                value={profile.phoneNumber}
+                onChange={(phoneNumber) => setProfile((p) => ({ ...p, phoneNumber }))}
+                error={profileErrors.phoneNumber}
+              />
               <Button type="submit" disabled={profileLoading}>
                 {profileLoading ? (
                   'Guardando...'
@@ -309,7 +290,11 @@ export function SettingsForm({ initialProfile }: SettingsFormProps) {
                     className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
                     onClick={() => setShowCurrentPassword((v) => !v)}
                   >
-                    {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showCurrentPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
                   </button>
                 </div>
                 {securityErrors.currentPassword && (

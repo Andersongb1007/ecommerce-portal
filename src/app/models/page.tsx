@@ -10,58 +10,29 @@ import {
   type PaginatedResponse,
 } from '@/lib/api/pagination';
 import { canManageCatalog, type PortalCompany } from '@/lib/auth/company-status';
-import {
-  type CatalogBrand,
-  type CatalogCategory,
-  type CatalogModel,
-  type CatalogProduct,
-  type StorefrontData,
-} from '@/lib/validation/catalog';
+import { type CatalogBrand, type CatalogModel } from '@/lib/validation/catalog';
 import { logger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Productos | Portal Empresa',
-  description: 'Gestiona el catálogo de productos de tu empresa.',
+  title: 'Modelos | Portal Empresa',
+  description: 'Gestiona modelos y líneas de tu catálogo retail.',
 };
 
-export default async function ProductsPage() {
+export default async function ModelsPage() {
   let company: PortalCompany | null = null;
   try {
     company = await serverApiRequest<PortalCompany>(portalPaths.companies.me);
   } catch (err) {
-    logger.error({ msg: 'Error cargando perfil en /products', err });
+    logger.error({ msg: 'Error cargando perfil en /models', err });
   }
 
-  let initialPaginated: PaginatedResponse<CatalogProduct> = {
-    data: [],
-    meta: {
-      total: 0,
-      page: 1,
-      limit: 50,
-      totalPages: 1,
-      hasNextPage: false,
-      hasPreviousPage: false,
-    },
-  };
-  let initialCategories: CatalogCategory[] = [];
   let initialBrands: CatalogBrand[] = [];
   let initialModels: CatalogModel[] = [];
-  let initialStorefront: StorefrontData | null = null;
-
   if (company && canManageCatalog(company)) {
     try {
-      const [productsRaw, categoriesRaw, brandsRaw, modelsRaw, storefront] = await Promise.all([
-        serverApiRequest(
-          buildListQuery(
-            portalPaths.catalog.companyProducts(company.id),
-            parseListQuery({ limit: '50' })
-          )
-        ),
-        serverApiRequest(
-          buildListQuery(portalPaths.catalog.categories.list, parseListQuery({ limit: '100' }))
-        ),
+      const [brandsRaw, modelsRaw] = await Promise.all([
         serverApiRequest(
           buildListQuery(
             portalPaths.catalog.companyBrands(company.id),
@@ -74,43 +45,31 @@ export default async function ProductsPage() {
             parseListQuery({ limit: '50' })
           )
         ),
-        serverApiRequest<StorefrontData>(portalPaths.storefront.byCompanyId(company.id)),
       ]);
-
-      initialPaginated = normalizePaginated<CatalogProduct>(
-        productsRaw as PaginatedResponse<CatalogProduct>
-      );
-      initialCategories = normalizePaginated<CatalogCategory>(
-        categoriesRaw as PaginatedResponse<CatalogCategory>
-      ).data;
       initialBrands = normalizePaginated<CatalogBrand>(
         brandsRaw as PaginatedResponse<CatalogBrand>
       ).data;
       initialModels = normalizePaginated<CatalogModel>(
         modelsRaw as PaginatedResponse<CatalogModel>
       ).data;
-      initialStorefront = storefront;
     } catch (err) {
-      logger.error({ msg: 'Error SSR productos portal', err });
+      logger.error({ msg: 'Error SSR modelos portal', err });
     }
   }
 
   return (
     <CatalogGate
-      title="Productos"
+      title="Modelos"
       company={company}
-      emptyMessage="Necesitas una empresa asociada para gestionar el catálogo."
+      emptyMessage="Necesitas una empresa asociada para gestionar modelos."
     >
       {company ? (
         <CompanyCatalogPanel
           companyId={company.id}
           companyName={company.name ?? 'Mi empresa'}
-          section="products"
-          initialPaginated={initialPaginated}
-          initialCategories={initialCategories}
+          section="models"
           initialBrands={initialBrands}
           initialModels={initialModels}
-          initialStorefront={initialStorefront}
         />
       ) : null}
     </CatalogGate>

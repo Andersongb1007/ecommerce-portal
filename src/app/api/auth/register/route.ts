@@ -4,6 +4,8 @@ import { env } from '@/lib/validation/env';
 import { portalPaths } from '@/lib/api/portal-paths';
 import { apiHandler } from '@/lib/error/apiHandler';
 import { AppError, ValidationError } from '@/lib/error/AppError';
+import { companyRegisterSchema } from '@/lib/validation/auth';
+import { validateMinimalCompanyRegister } from '@/lib/auth/validate-minimal-register';
 
 interface RegisterResponse {
   accessToken: string;
@@ -14,49 +16,48 @@ interface RegisterResponse {
 
 export const POST = apiHandler(async (req: Request) => {
   const formData = await req.formData();
-
-  const required = [
-    'firstName',
-    'lastName',
-    'email',
-    'password',
-    'cedula',
-    'phoneNumber',
-    'name',
-    'slug',
-    'rif',
-    'address',
-  ] as const;
-
-  for (const field of required) {
-    const value = formData.get(field);
-    if (typeof value !== 'string' || !value.trim()) {
-      throw new ValidationError(`Campo obligatorio: ${field}`);
-    }
+  const validation = validateMinimalCompanyRegister(formData);
+  if (!validation.ok) {
+    throw new ValidationError(validation.message);
   }
 
-  if (!(formData.get('rifDocument') instanceof File)) {
-    throw new ValidationError('Debes adjuntar el documento RIF (PDF o imagen)');
-  }
+  const { email, password, rif, rifDocument } = validation.data;
+  const body = new FormData();
+  body.set('accountType', '2');
+  body.set('email', email);
+  body.set('password', password);
+  body.set('rif', rif);
+  body.append('rifDocument', rifDocument);
 
-  formData.set('accountType', '2');
+  const parsed = companyRegisterSchema.safeParse({
+    accountType: 2,
+    email,
+    password,
+    rif,
+  });
+  if (!parsed.success) {
+    throw new ValidationError(parsed.error.issues[0]?.message ?? 'Datos inválidos');
+  }
 
   const response = await fetch(`${env.NEXT_PUBLIC_API_URL}${portalPaths.auth.register}`, {
     method: 'POST',
-    body: formData,
+    body,
   });
 
-  const payload = (await response.json().catch(() => null)) as RegisterResponse | {
-    message?: string;
-    error?: { message?: string };
-  } | null;
+  const payload = (await response.json().catch(() => null)) as
+    | RegisterResponse
+    | {
+        message?: string;
+        error?: { message?: string };
+      }
+    | null;
 
   if (!response.ok) {
     const message =
       (payload && 'error' in payload && payload.error?.message) ||
       (payload && 'message' in payload && payload.message) ||
       'No se pudo completar el registro';
-    throw new AppError(message, response.status, 'REGISTER_FAILED');
+    throw new AppError(String(message), response.status, 'REGISTER_FAILED');
   }
 
   const data = payload as RegisterResponse;
@@ -78,7 +79,6 @@ export const POST = apiHandler(async (req: Request) => {
     path: '/',
   });
 
-  // Adjuntar company al userSession para el dashboard OWNER
   const sessionUser = {
     ...data.user,
     userCompanyRoles: data.company

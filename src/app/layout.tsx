@@ -1,17 +1,23 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Outfit, Fraunces } from 'next/font/google';
 import { cookies } from 'next/headers';
 import { SessionProvider } from '@/context/SessionContext';
 import './globals.css';
 
-const inter = Inter({
+const outfit = Outfit({
   variable: '--font-sans',
   subsets: ['latin'],
   display: 'swap',
 });
 
+const fraunces = Fraunces({
+  variable: '--font-display',
+  subsets: ['latin'],
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
-  title: 'Portal Empresa',
+  title: 'Vitrina | Portal Empresa',
   description: 'Portal para comercios: registro, empresa, productos y vitrina',
   robots: {
     index: false,
@@ -40,10 +46,10 @@ export default async function RootLayout({
   return (
     <html
       lang="es"
-      className={`${inter.variable} ${theme} h-full antialiased`}
+      className={`${outfit.variable} ${fraunces.variable} ${theme} h-full antialiased`}
       style={{ colorScheme: theme }}
     >
-      <body className="bg-background text-foreground flex min-h-full flex-col">
+      <body className="bg-background text-foreground flex min-h-full flex-col font-sans">
         <SessionProvider initialUser={initialUser}>{children}</SessionProvider>
       </body>
     </html>

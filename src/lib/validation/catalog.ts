@@ -5,6 +5,20 @@ export const PRODUCT_KIND_LABELS: Record<ProductKind, string> = {
   RETAIL: 'Tienda (retail / repuestos)',
 };
 
+export type ProductStatus = 1 | 2 | 3;
+
+export const PRODUCT_STATUS = {
+  ACTIVE: 1 as ProductStatus,
+  INACTIVE: 2 as ProductStatus,
+  DRAFT: 3 as ProductStatus,
+};
+
+export const PRODUCT_STATUS_LABELS: Record<ProductStatus, string> = {
+  1: 'Publicado',
+  2: 'Oculto',
+  3: 'Borrador',
+};
+
 export interface CatalogCategory {
   id: string;
   name: string;
@@ -24,6 +38,7 @@ export interface CatalogProduct {
   name: string;
   price: string;
   productKind?: ProductKind;
+  status?: ProductStatus;
   description?: string | null;
   category: CatalogCategory;
   brand?: { id: string; name: string } | null;
@@ -39,14 +54,21 @@ export interface CatalogBrand {
 export interface CatalogModel {
   id: string;
   name: string;
+  brandId?: string;
   brandName?: string;
 }
 
 export interface StorefrontData {
+  companyId?: string;
+  name?: string;
+  slug?: string;
+  themeColor?: string | null;
+  bioDescription?: string | null;
   displayTemplate: string;
   suggestedTemplates: string[];
   isPublished: number;
-  slug?: string;
+  logoUrl?: string | null;
+  bannerUrl?: string | null;
 }
 
 export const DISPLAY_TEMPLATE_LABELS: Record<string, string> = {
@@ -55,6 +77,9 @@ export const DISPLAY_TEMPLATE_LABELS: Record<string, string> = {
   LIST: 'Lista simple',
   CARDS: 'Tarjetas destacadas',
 };
+
+export const STOREFRONT_PUBLISHED = 2;
+export const STOREFRONT_DRAFT = 1;
 
 export interface AuditLogEntry {
   id: string;

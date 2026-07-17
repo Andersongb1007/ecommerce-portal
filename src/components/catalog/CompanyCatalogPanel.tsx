@@ -7,6 +7,14 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Table,
   TableBody,
   TableCell,
@@ -14,43 +22,51 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { FormattedTextarea } from '@/components/forms/FormattedTextarea';
+import { StorefrontEditor } from '@/components/catalog/StorefrontEditor';
 import { browserApiRequest } from '@/lib/api/browserClient';
 import { portalPaths } from '@/lib/api/portal-paths';
 import { normalizePaginated, type PaginatedResponse } from '@/lib/api/pagination';
 import { useSyncedPaginatedList } from '@/hooks/useListQuery';
 import {
-  DISPLAY_TEMPLATE_LABELS,
   PRODUCT_KIND_LABELS,
+  PRODUCT_STATUS,
+  PRODUCT_STATUS_LABELS,
   type CatalogBrand,
   type CatalogCategory,
   type CatalogModel,
   type CatalogProduct,
   type ProductKind,
+  type ProductStatus,
   type StorefrontData,
 } from '@/lib/validation/catalog';
 import { logger } from '@/lib/logger';
+import { resolveMediaUrl } from '@/lib/media/url';
 import {
   ArrowLeft,
   CheckCircle2,
   ImagePlus,
-  LayoutTemplate,
   Layers,
   Pencil,
   Package,
+  Plus,
   Tag,
   Trash2,
   X,
 } from 'lucide-react';
 
-type Tab = 'products' | 'brands' | 'models' | 'storefront';
+type CatalogSection = 'products' | 'brands' | 'models' | 'storefront';
 
 interface CompanyCatalogPanelProps {
   companyId: string;
   companyName: string;
-  initialPaginated: PaginatedResponse<CatalogProduct>;
-  initialCategories: CatalogCategory[];
-  initialBrands: CatalogBrand[];
-  initialStorefront: StorefrontData | null;
+  /** Vista dedicada: cada valor es una página distinta (sin tabs). */
+  section?: CatalogSection;
+  initialPaginated?: PaginatedResponse<CatalogProduct>;
+  initialCategories?: CatalogCategory[];
+  initialBrands?: CatalogBrand[];
+  initialModels?: CatalogModel[];
+  initialStorefront?: StorefrontData | null;
 }
 
 function formatPrice(price: string) {
@@ -58,36 +74,42 @@ function formatPrice(price: string) {
   return Number.isFinite(num) ? `$${num.toFixed(2)}` : `$${price}`;
 }
 
-function groupProductsForPreview(products: CatalogProduct[]) {
-  const map = new Map<string, { name: string; items: CatalogProduct[] }>();
-  for (const product of products) {
-    const key = product.category.id;
-    if (!map.has(key)) {
-      map.set(key, { name: product.category.name, items: [] });
-    }
-    map.get(key)!.items.push(product);
-  }
-  return [...map.values()];
-}
+type PendingImage = {
+  id: string;
+  file: File;
+  previewUrl: string;
+};
+
+const EMPTY_PRODUCTS: PaginatedResponse<CatalogProduct> = {
+  data: [],
+  meta: {
+    total: 0,
+    page: 1,
+    limit: 50,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  },
+};
 
 export function CompanyCatalogPanel({
   companyId,
   companyName,
-  initialPaginated,
-  initialCategories,
-  initialBrands,
-  initialStorefront,
+  section = 'products',
+  initialPaginated = EMPTY_PRODUCTS,
+  initialCategories = [],
+  initialBrands = [],
+  initialModels = [],
+  initialStorefront = null,
 }: CompanyCatalogPanelProps) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>('products');
-  const [loading, setLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastIsError, setToastIsError] = useState(false);
 
   const { data: products, setData: setProducts } = useSyncedPaginatedList(initialPaginated);
   const [categories, setCategories] = useState(initialCategories);
   const [brands, setBrands] = useState<CatalogBrand[]>(initialBrands);
-  const [models, setModels] = useState<CatalogModel[]>([]);
+  const [models, setModels] = useState<CatalogModel[]>(initialModels);
   const [storefront, setStorefront] = useState<StorefrontData | null>(initialStorefront);
 
   const defaultProductKind: ProductKind =
@@ -100,13 +122,20 @@ export function CompanyCatalogPanel({
   const [categoryId, setCategoryId] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
   const [productBrandId, setProductBrandId] = useState('');
+  const [productModelId, setProductModelId] = useState('');
+  const [productStatus, setProductStatus] = useState<ProductStatus>(PRODUCT_STATUS.ACTIVE);
   const [brandName, setBrandName] = useState('');
   const [modelName, setModelName] = useState('');
   const [modelBrandId, setModelBrandId] = useState('');
 
-  const [imageProduct, setImageProduct] = useState<CatalogProduct | null>(null);
+  const [createProductOpen, setCreateProductOpen] = useState(false);
+  const [createBrandOpen, setCreateBrandOpen] = useState(false);
+  const [createModelOpen, setCreateModelOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<CatalogProduct | null>(null);
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [editPendingImages, setEditPendingImages] = useState<PendingImage[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const triggerToast = (message: string, isError = false) => {
     setToastMessage(message);
@@ -123,55 +152,67 @@ export function CompanyCatalogPanel({
     router.refresh();
   }, [companyId, router, setProducts]);
 
-  const fetchTabData = useCallback(
-    async (activeTab: Tab) => {
-      setLoading(true);
-      try {
-        if (activeTab === 'products') {
-          await refreshProducts();
-        } else if (activeTab === 'brands') {
-          const raw = await browserApiRequest(
-            `${portalPaths.catalog.companyBrands(companyId)}?limit=50`
-          );
-          setBrands(normalizePaginated<CatalogBrand>(raw as PaginatedResponse<CatalogBrand>).data);
-        } else if (activeTab === 'models') {
-          const raw = await browserApiRequest(
-            `${portalPaths.catalog.companyModels(companyId)}?limit=50`
-          );
-          setModels(normalizePaginated<CatalogModel>(raw as PaginatedResponse<CatalogModel>).data);
-        } else {
-          const data = await browserApiRequest<StorefrontData>(
-            portalPaths.storefront.byCompanyId(companyId)
-          );
-          setStorefront(data);
-        }
-      } catch (err) {
-        logger.error({ msg: 'Error cargando catálogo', err });
-        triggerToast(err instanceof Error ? err.message : 'Error al cargar datos', true);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [companyId, refreshProducts]
-  );
+  const refreshBrands = useCallback(async () => {
+    const raw = await browserApiRequest(`${portalPaths.catalog.companyBrands(companyId)}?limit=50`);
+    setBrands(normalizePaginated<CatalogBrand>(raw as PaginatedResponse<CatalogBrand>).data);
+    router.refresh();
+  }, [companyId, router]);
 
-  const loadBrandsForSelect = useCallback(async () => {
-    try {
-      const raw = await browserApiRequest(
-        `${portalPaths.catalog.companyBrands(companyId)}?limit=50`
-      );
-      setBrands(normalizePaginated<CatalogBrand>(raw as PaginatedResponse<CatalogBrand>).data);
-    } catch (err) {
-      logger.error({ msg: 'Error cargando marcas', err });
-    }
-  }, [companyId]);
+  const refreshModels = useCallback(async () => {
+    const raw = await browserApiRequest(`${portalPaths.catalog.companyModels(companyId)}?limit=50`);
+    setModels(normalizePaginated<CatalogModel>(raw as PaginatedResponse<CatalogModel>).data);
+    router.refresh();
+  }, [companyId, router]);
 
-  const switchTab = (next: Tab) => {
-    setTab(next);
-    void fetchTabData(next);
-    if (next === 'models' || next === 'products') {
-      void loadBrandsForSelect();
+  const clearPendingImages = (setter: typeof setPendingImages) => {
+    setter((prev) => {
+      for (const img of prev) URL.revokeObjectURL(img.previewUrl);
+      return [];
+    });
+  };
+
+  const appendPendingImages = (files: FileList | null, setter: typeof setPendingImages) => {
+    if (!files?.length) return;
+    const additions: PendingImage[] = [];
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) continue;
+      additions.push({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      });
     }
+    if (additions.length) setter((prev) => [...prev, ...additions]);
+  };
+
+  const removePendingImage = (id: string, setter: typeof setPendingImages) => {
+    setter((prev) => {
+      const found = prev.find((p) => p.id === id);
+      if (found) URL.revokeObjectURL(found.previewUrl);
+      return prev.filter((p) => p.id !== id);
+    });
+  };
+
+  const uploadProductImage = async (productId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    await browserApiRequest(portalPaths.catalog.companyProductImages(companyId, productId), {
+      method: 'POST',
+      body: formData,
+    });
+  };
+
+  const resetProductForm = () => {
+    setProductName('');
+    setProductPrice('');
+    setProductKind(defaultProductKind);
+    setProductDescription('');
+    setCategoryId('');
+    setNewCategoryName('');
+    setProductBrandId('');
+    setProductModelId('');
+    setProductStatus(PRODUCT_STATUS.ACTIVE);
+    clearPendingImages(setPendingImages);
   };
 
   const handleCreateProduct = async (e: FormEvent) => {
@@ -180,29 +221,42 @@ export function CompanyCatalogPanel({
       triggerToast('Selecciona o escribe una categoría', true);
       return;
     }
+    if (pendingImages.length === 0) {
+      triggerToast('Agrega al menos una imagen del producto', true);
+      return;
+    }
 
+    const createdWithNewCategory = !categoryId && Boolean(newCategoryName.trim());
+    const imagesToUpload = [...pendingImages];
+    setSaving(true);
     try {
-      await browserApiRequest(portalPaths.catalog.companyProducts(companyId), {
-        method: 'POST',
-        body: JSON.stringify({
-          name: productName.trim(),
-          price: Number(productPrice),
-          productKind,
-          ...(productDescription.trim() ? { description: productDescription.trim() } : {}),
-          ...(categoryId ? { categoryId } : { categoryName: newCategoryName.trim() }),
-          ...(productKind === 'RETAIL' && productBrandId ? { brandId: productBrandId } : {}),
-        }),
-      });
-      setProductName('');
-      setProductPrice('');
-      setProductDescription('');
-      setCategoryId('');
-      setNewCategoryName('');
-      setProductBrandId('');
+      const created = await browserApiRequest<CatalogProduct>(
+        portalPaths.catalog.companyProducts(companyId),
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            name: productName.trim(),
+            price: Number(productPrice),
+            productKind,
+            status: productStatus,
+            ...(productDescription.trim() ? { description: productDescription.trim() } : {}),
+            ...(categoryId ? { categoryId } : { categoryName: newCategoryName.trim() }),
+            ...(productKind === 'RETAIL' && productBrandId ? { brandId: productBrandId } : {}),
+            ...(productKind === 'RETAIL' && productModelId ? { modelId: productModelId } : {}),
+          }),
+        }
+      );
+
+      for (const img of imagesToUpload) {
+        await uploadProductImage(created.id, img.file);
+      }
+
+      resetProductForm();
+      setCreateProductOpen(false);
       triggerToast('Producto creado correctamente');
       await refreshProducts();
 
-      if (!categoryId && newCategoryName.trim()) {
+      if (createdWithNewCategory) {
         const raw = await browserApiRequest(`${portalPaths.catalog.categories.list}?limit=100`);
         setCategories(
           normalizePaginated<CatalogCategory>(raw as PaginatedResponse<CatalogCategory>).data
@@ -211,12 +265,22 @@ export function CompanyCatalogPanel({
     } catch (err) {
       logger.error({ msg: 'Error creando producto', err });
       triggerToast(err instanceof Error ? err.message : 'Error al crear producto', true);
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleUpdateProduct = async (e: FormEvent) => {
     e.preventDefault();
     if (!editProduct) return;
+
+    const totalImages = (editProduct.images?.length ?? 0) + editPendingImages.length;
+    if (totalImages === 0) {
+      triggerToast('El producto necesita al menos una imagen', true);
+      return;
+    }
+
+    setSaving(true);
     try {
       await browserApiRequest(portalPaths.catalog.companyProduct(companyId, editProduct.id), {
         method: 'PATCH',
@@ -224,15 +288,50 @@ export function CompanyCatalogPanel({
           name: editProduct.name.trim(),
           price: Number(editProduct.price),
           productKind: editProduct.productKind,
+          status: editProduct.status ?? PRODUCT_STATUS.ACTIVE,
           description: editProduct.description ?? null,
+          categoryId: editProduct.category.id,
+          brandId: editProduct.brand?.id ?? null,
+          modelId: editProduct.model?.id ?? null,
         }),
       });
+
+      for (const img of editPendingImages) {
+        await uploadProductImage(editProduct.id, img.file);
+      }
+
+      clearPendingImages(setEditPendingImages);
       triggerToast('Producto actualizado');
       setEditProduct(null);
       await refreshProducts();
     } catch (err) {
       logger.error({ msg: 'Error actualizando producto', err });
       triggerToast(err instanceof Error ? err.message : 'Error al actualizar producto', true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteProductImage = async (imageId: string) => {
+    if (!editProduct) return;
+    if (!window.confirm('¿Eliminar esta imagen?')) return;
+    setUploadingImage(true);
+    try {
+      await browserApiRequest(
+        portalPaths.catalog.companyProductImage(companyId, editProduct.id, imageId),
+        { method: 'DELETE' }
+      );
+      const updated = await browserApiRequest<CatalogProduct>(
+        portalPaths.catalog.companyProduct(companyId, editProduct.id)
+      );
+      setEditProduct(updated);
+      await refreshProducts();
+      triggerToast('Imagen eliminada');
+    } catch (err) {
+      logger.error({ msg: 'Error eliminando imagen', err });
+      triggerToast(err instanceof Error ? err.message : 'Error al eliminar imagen', true);
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -250,43 +349,23 @@ export function CompanyCatalogPanel({
     }
   };
 
-  const handleUploadImage = async (file: File) => {
-    if (!imageProduct) return;
-    setUploadingImage(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      await browserApiRequest(portalPaths.catalog.companyProductImages(companyId, imageProduct.id), {
-        method: 'POST',
-        body: formData,
-      });
-      triggerToast('Imagen subida correctamente');
-      const updated = await browserApiRequest<CatalogProduct>(
-        portalPaths.catalog.companyProduct(companyId, imageProduct.id)
-      );
-      setImageProduct(updated);
-      await refreshProducts();
-    } catch (err) {
-      logger.error({ msg: 'Error subiendo imagen', err });
-      triggerToast(err instanceof Error ? err.message : 'Error al subir imagen', true);
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
   const handleCreateBrand = async (e: FormEvent) => {
     e.preventDefault();
+    setSaving(true);
     try {
       await browserApiRequest(portalPaths.catalog.companyBrands(companyId), {
         method: 'POST',
         body: JSON.stringify({ name: brandName.trim() }),
       });
       setBrandName('');
+      setCreateBrandOpen(false);
       triggerToast('Marca creada');
-      void fetchTabData('brands');
+      await refreshBrands();
     } catch (err) {
       logger.error({ msg: 'Error creando marca', err });
       triggerToast(err instanceof Error ? err.message : 'Error al crear marca', true);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -296,173 +375,265 @@ export function CompanyCatalogPanel({
       triggerToast('Selecciona una marca', true);
       return;
     }
+    setSaving(true);
     try {
       await browserApiRequest(portalPaths.catalog.companyModels(companyId), {
         method: 'POST',
         body: JSON.stringify({ name: modelName.trim(), brandId: modelBrandId }),
       });
       setModelName('');
+      setModelBrandId('');
+      setCreateModelOpen(false);
       triggerToast('Modelo creado');
-      void fetchTabData('models');
+      await refreshModels();
     } catch (err) {
       logger.error({ msg: 'Error creando modelo', err });
       triggerToast(err instanceof Error ? err.message : 'Error al crear modelo', true);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleStorefrontTemplate = async (template: string) => {
-    try {
-      await browserApiRequest(portalPaths.storefront.byCompanyId(companyId), {
-        method: 'PATCH',
-        body: JSON.stringify({ displayTemplate: template }),
-      });
-      const data = await browserApiRequest<StorefrontData>(
-        portalPaths.storefront.byCompanyId(companyId)
-      );
-      setStorefront(data);
-      triggerToast('Plantilla de vitrina actualizada');
-    } catch (err) {
-      logger.error({ msg: 'Error actualizando vitrina', err });
-      triggerToast(err instanceof Error ? err.message : 'Error al actualizar vitrina', true);
-    }
-  };
+  const toastNode = toastMessage ? (
+    <div
+      className={`fixed right-6 bottom-6 z-50 flex items-center gap-2 rounded-xl px-4 py-3 shadow-lg ${
+        toastIsError
+          ? 'bg-destructive text-destructive-foreground'
+          : 'bg-primary text-primary-foreground'
+      }`}
+    >
+      {!toastIsError && <CheckCircle2 className="h-4 w-4" />}
+      <span className="text-sm font-medium">{toastMessage}</span>
+    </div>
+  ) : null;
 
-  const previewTemplate = storefront?.displayTemplate ?? 'GRID';
-  const previewSections = previewTemplate === 'LIST' ? [] : groupProductsForPreview(products);
+  if (section === 'storefront') {
+    return (
+      <StorefrontEditor
+        companyId={companyId}
+        companyName={companyName}
+        initialStorefront={storefront}
+        products={products}
+      />
+    );
+  }
 
-  const tabs: { id: Tab; label: string; icon: typeof Package }[] = [
-    { id: 'products', label: 'Productos', icon: Package },
-    { id: 'brands', label: 'Marcas', icon: Tag },
-    { id: 'models', label: 'Modelos', icon: Layers },
-    { id: 'storefront', label: 'Vitrina', icon: LayoutTemplate },
-  ];
+  if (section === 'brands') {
+    return (
+      <div className="w-full space-y-6">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <Link
+              href="/"
+              className={buttonVariants({ variant: 'ghost', className: 'animate-none' })}
+            >
+              <ArrowLeft className="mr-1.5 h-4 w-4" />
+              Inicio
+            </Link>
+            <h1 className="font-display text-foreground flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+              <Tag className="h-7 w-7" />
+              Marcas
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              Auxiliar para productos retail · {companyName}.{' '}
+              <Link href="/products" className="text-primary underline">
+                Ver productos
+              </Link>
+              {' · '}
+              <Link href="/models" className="text-primary underline">
+                Ver modelos
+              </Link>
+            </p>
+          </div>
+          <Button type="button" className="animate-none" onClick={() => setCreateBrandOpen(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Agregar marca
+          </Button>
+        </header>
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Link
-          href="/"
-          className={buttonVariants({ variant: 'ghost', className: 'animate-none' })}
-        >
-          <ArrowLeft className="mr-1.5 h-4 w-4" />
-          Inicio
-        </Link>
-        <h2 className="text-foreground text-xl font-bold">{companyName}</h2>
-        {storefront?.slug && (
-          <span className="text-muted-foreground text-sm">/{storefront.slug}</span>
+        {brands.length === 0 ? (
+          <p className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm">
+            No hay marcas. Usa el botón para agregar la primera.
+          </p>
+        ) : (
+          <div className="border-border overflow-hidden rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nombre</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {brands.map((b) => (
+                  <TableRow key={b.id}>
+                    <TableCell className="py-3 font-medium">{b.name}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
-      </div>
 
-      <div className="border-border flex flex-wrap gap-2 border-b pb-2">
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => switchTab(id)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              tab === id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/50'
-            }`}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {loading && <p className="text-muted-foreground text-sm">Cargando...</p>}
-
-      {tab === 'products' && !loading && (
-        <div className="space-y-4">
-          <form
-            onSubmit={(e) => void handleCreateProduct(e)}
-            className="border-border grid gap-3 rounded-xl border p-4 md:grid-cols-2 lg:grid-cols-3"
-          >
-            <div>
-              <Label>Nombre</Label>
-              <Input
-                value={productName}
-                onChange={(e) => setProductName(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <Label>Precio</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={productPrice}
-                onChange={(e) => setProductPrice(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <Label>Tipo de producto</Label>
-              <select
-                className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
-                value={productKind}
-                onChange={(e) => {
-                  const kind = e.target.value as ProductKind;
-                  setProductKind(kind);
-                  if (kind === 'MENU') setProductBrandId('');
-                }}
-              >
-                {(Object.keys(PRODUCT_KIND_LABELS) as ProductKind[]).map((kind) => (
-                  <option key={kind} value={kind}>
-                    {PRODUCT_KIND_LABELS[kind]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label>Descripción {productKind === 'MENU' ? '(plato / ítem)' : '(opcional)'}</Label>
-              <Input
-                value={productDescription}
-                onChange={(e) => setProductDescription(e.target.value)}
-                placeholder={
-                  productKind === 'MENU' ? 'Ej. Con leche de almendras' : 'Detalle del producto'
-                }
-              />
-            </div>
-            <div>
-              <Label>Categoría existente</Label>
-              <select
-                className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
-                value={categoryId}
-                onChange={(e) => {
-                  setCategoryId(e.target.value);
-                  if (e.target.value) setNewCategoryName('');
-                }}
-              >
-                <option value="">Seleccionar...</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label>O nueva categoría</Label>
-              <Input
-                value={newCategoryName}
-                onChange={(e) => {
-                  setNewCategoryName(e.target.value);
-                  if (e.target.value) setCategoryId('');
-                }}
-                placeholder="Se crea globalmente si no existe"
-                disabled={!!categoryId}
-              />
-            </div>
-            {productKind === 'RETAIL' && (
-              <div>
-                <Label>Marca (opcional)</Label>
-                <select
-                  className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
-                  value={productBrandId}
-                  onChange={(e) => setProductBrandId(e.target.value)}
+        <Dialog
+          open={createBrandOpen}
+          onOpenChange={(open) => {
+            setCreateBrandOpen(open);
+            if (!open) setBrandName('');
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Agregar marca</DialogTitle>
+              <DialogDescription>
+                Las marcas ayudan a organizar productos retail. No son la vitrina pública.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={(e) => void handleCreateBrand(e)} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="brand-name">Nombre</Label>
+                <Input
+                  id="brand-name"
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
+                  placeholder="Ej. Acme"
+                  required
+                  autoFocus
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="animate-none"
+                  onClick={() => setCreateBrandOpen(false)}
                 >
-                  <option value="">Sin marca</option>
+                  Cancelar
+                </Button>
+                <Button type="submit" className="animate-none" disabled={saving}>
+                  {saving ? 'Guardando...' : 'Crear marca'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {toastNode}
+      </div>
+    );
+  }
+
+  if (section === 'models') {
+    return (
+      <div className="w-full space-y-6">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <Link
+              href="/"
+              className={buttonVariants({ variant: 'ghost', className: 'animate-none' })}
+            >
+              <ArrowLeft className="mr-1.5 h-4 w-4" />
+              Inicio
+            </Link>
+            <h1 className="font-display text-foreground flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+              <Layers className="h-7 w-7" />
+              Modelos
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              Líneas por marca · {companyName}.{' '}
+              <Link href="/brands" className="text-primary underline">
+                Ver marcas
+              </Link>
+              {' · '}
+              <Link href="/products" className="text-primary underline">
+                Ver productos
+              </Link>
+            </p>
+          </div>
+          <Button
+            type="button"
+            className="animate-none"
+            disabled={brands.length === 0}
+            onClick={() => setCreateModelOpen(true)}
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            Agregar modelo
+          </Button>
+        </header>
+
+        {brands.length === 0 ? (
+          <p className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm">
+            Primero crea una{' '}
+            <Link href="/brands" className="text-primary font-medium underline">
+              marca
+            </Link>{' '}
+            para poder agregar modelos.
+          </p>
+        ) : models.length === 0 ? (
+          <p className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm">
+            No hay modelos. Usa el botón para agregar el primero.
+          </p>
+        ) : (
+          <div className="border-border overflow-hidden rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Modelo</TableHead>
+                  <TableHead>Marca</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {models.map((m) => (
+                  <TableRow key={m.id}>
+                    <TableCell className="py-3 font-medium">{m.name}</TableCell>
+                    <TableCell className="text-muted-foreground py-3">
+                      {m.brandName ?? '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <Dialog
+          open={createModelOpen}
+          onOpenChange={(open) => {
+            setCreateModelOpen(open);
+            if (!open) {
+              setModelName('');
+              setModelBrandId('');
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Agregar modelo</DialogTitle>
+              <DialogDescription>
+                Asocia una línea o modelo a una marca existente.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={(e) => void handleCreateModel(e)} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="model-name">Nombre</Label>
+                <Input
+                  id="model-name"
+                  value={modelName}
+                  onChange={(e) => setModelName(e.target.value)}
+                  placeholder="Línea / modelo"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="model-brand">Marca</Label>
+                <select
+                  id="model-brand"
+                  className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                  value={modelBrandId}
+                  onChange={(e) => setModelBrandId(e.target.value)}
+                  required
+                >
+                  <option value="">Seleccionar marca...</option>
                   {brands.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
@@ -470,297 +641,207 @@ export function CompanyCatalogPanel({
                   ))}
                 </select>
               </div>
-            )}
-            <div className="flex items-end">
-              <Button type="submit" className="w-full animate-none">
-                Agregar producto
-              </Button>
-            </div>
-          </form>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="animate-none"
+                  onClick={() => setCreateModelOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" className="animate-none" disabled={saving}>
+                  {saving ? 'Guardando...' : 'Crear modelo'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
-          {products.length === 0 ? (
-            <p className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm">
-              No hay productos. Agrega el primero con el formulario de arriba.
-            </p>
-          ) : (
+        {toastNode}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full space-y-6">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-1">
+          <Link
+            href="/"
+            className={buttonVariants({ variant: 'ghost', className: 'animate-none' })}
+          >
+            <ArrowLeft className="mr-1.5 h-4 w-4" />
+            Inicio
+          </Link>
+          <h1 className="font-display text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Productos
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            {companyName}
+            {storefront?.slug ? (
+              <>
+                {' '}
+                · <span className="font-medium">/{storefront.slug}</span>
+              </>
+            ) : null}
+            {' · '}
+            <Link href="/brands" className="text-primary underline">
+              Marcas
+            </Link>
+            {' · '}
+            <Link href="/models" className="text-primary underline">
+              Modelos
+            </Link>
+            {' · '}
+            <Link href="/storefront" className="text-primary underline">
+              Vitrina
+            </Link>
+          </p>
+        </div>
+        <Button type="button" className="animate-none" onClick={() => setCreateProductOpen(true)}>
+          <Plus className="mr-1.5 h-4 w-4" />
+          Agregar producto
+        </Button>
+      </header>
+
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold">
+          Tus productos{' '}
+          <span className="text-muted-foreground font-normal">({products.length})</span>
+        </h2>
+        {products.length === 0 ? (
+          <p className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm">
+            No hay productos. Usa el botón para agregar el primero.
+          </p>
+        ) : (
+          <div className="border-border overflow-x-auto rounded-xl border">
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-16">Foto</TableHead>
                   <TableHead>Producto</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Categoría</TableHead>
                   <TableHead>Precio</TableHead>
-                  <TableHead>Imágenes</TableHead>
-                  <TableHead className="w-36" />
+                  <TableHead className="w-28" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {products.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="py-4 font-semibold">{p.name}</TableCell>
-                    <TableCell className="py-4 text-sm">
-                      {p.productKind ? PRODUCT_KIND_LABELS[p.productKind] : '—'}
-                    </TableCell>
-                    <TableCell className="py-4">{p.category.name}</TableCell>
-                    <TableCell className="py-4">{formatPrice(p.price)}</TableCell>
-                    <TableCell className="py-4">
-                      {p.productKind !== 'MENU' && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="animate-none"
-                          onClick={() => setImageProduct(p)}
-                        >
-                          <ImagePlus className="mr-1 h-3.5 w-3.5" />
-                          {p.images?.length ?? 0}
-                        </Button>
-                      )}
-                    </TableCell>
-                    <TableCell className="py-4">
-                      <div className="flex gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="animate-none"
-                          onClick={() => setEditProduct({ ...p })}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive animate-none"
-                          onClick={() => void handleDeleteProduct(p.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-      )}
-
-      {tab === 'brands' && !loading && (
-        <div className="space-y-4">
-          <form onSubmit={(e) => void handleCreateBrand(e)} className="flex gap-2">
-            <Input
-              value={brandName}
-              onChange={(e) => setBrandName(e.target.value)}
-              placeholder="Nombre de marca"
-              required
-            />
-            <Button type="submit" className="animate-none">
-              Agregar
-            </Button>
-          </form>
-          {brands.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No hay marcas registradas.</p>
-          ) : (
-            <Table>
-              <TableBody>
-                {brands.map((b) => (
-                  <TableRow key={b.id}>
-                    <TableCell className="py-4 font-semibold">{b.name}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-      )}
-
-      {tab === 'models' && !loading && (
-        <div className="space-y-4">
-          <form onSubmit={(e) => void handleCreateModel(e)} className="grid gap-2 md:grid-cols-3">
-            <Input
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="Línea / modelo"
-              required
-            />
-            <select
-              className="border-input bg-background rounded-md border px-3 py-2 text-sm"
-              value={modelBrandId}
-              onChange={(e) => setModelBrandId(e.target.value)}
-              required
-            >
-              <option value="">Marca...</option>
-              {brands.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-            <Button type="submit" className="animate-none">
-              Agregar modelo
-            </Button>
-          </form>
-          {models.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No hay modelos registrados.</p>
-          ) : (
-            <Table>
-              <TableBody>
-                {models.map((m) => (
-                  <TableRow key={m.id}>
-                    <TableCell className="py-4 font-semibold">{m.name}</TableCell>
-                    <TableCell className="text-muted-foreground py-4">
-                      {m.brandName ?? '—'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-      )}
-
-      {tab === 'storefront' && !loading && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          {storefront ? (
-            <div className="space-y-3">
-              <p className="text-muted-foreground text-sm">
-                Plantilla actual:{' '}
-                <strong>
-                  {DISPLAY_TEMPLATE_LABELS[storefront.displayTemplate] ??
-                    storefront.displayTemplate}
-                </strong>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {(storefront.suggestedTemplates.length
-                  ? storefront.suggestedTemplates
-                  : Object.keys(DISPLAY_TEMPLATE_LABELS)
-                ).map((tpl) => (
-                  <Button
-                    key={tpl}
-                    type="button"
-                    variant={storefront.displayTemplate === tpl ? 'default' : 'outline'}
-                    className="animate-none"
-                    onClick={() => void handleStorefrontTemplate(tpl)}
-                  >
-                    {DISPLAY_TEMPLATE_LABELS[tpl] ?? tpl}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-sm">No se pudo cargar la vitrina.</p>
-          )}
-
-          <div className="border-border bg-muted/20 rounded-xl border p-4">
-            <p className="text-muted-foreground mb-3 text-xs font-semibold uppercase">
-              Vista previa ({previewTemplate})
-            </p>
-            {products.length === 0 ? (
-              <p className="text-muted-foreground text-sm">Agrega productos para ver la vitrina.</p>
-            ) : previewTemplate === 'LIST' ? (
-              <ul className="space-y-1 text-sm">
-                {products.map((p) => (
-                  <li key={p.id} className="flex justify-between border-b py-1.5">
-                    <span>{p.name}</span>
-                    <span className="font-medium">{formatPrice(p.price)}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : previewTemplate === 'MENU' ? (
-              <div className="space-y-4">
-                {previewSections.map((section) => (
-                  <div key={section.name}>
-                    <h4 className="mb-2 border-b pb-1 text-sm font-bold uppercase">
-                      {section.name}
-                    </h4>
-                    <ul className="space-y-1 text-sm">
-                      {section.items.map((p) => (
-                        <li key={p.id} className="flex justify-between">
-                          <span>{p.name}</span>
-                          <span>{formatPrice(p.price)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {products.slice(0, 6).map((p) => {
-                  const img = p.images?.find((i) => i.isPrimary) ?? p.images?.[0];
+                {products.map((p) => {
+                  const thumb = p.images?.find((i) => i.isPrimary) ?? p.images?.[0];
                   return (
-                    <div key={p.id} className="bg-card border-border rounded-lg border p-3 text-sm">
-                      {img ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={img.url}
-                          alt={p.name}
-                          className="mb-2 h-16 w-full rounded object-cover"
-                        />
-                      ) : (
-                        <div className="bg-muted mb-2 h-16 rounded" />
-                      )}
-                      <p className="font-medium">{p.name}</p>
-                      <p className="text-muted-foreground">{formatPrice(p.price)}</p>
-                    </div>
+                    <TableRow key={p.id}>
+                      <TableCell className="py-2">
+                        {thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={resolveMediaUrl(thumb.url)}
+                            alt=""
+                            className="border-border h-12 w-12 rounded-md border object-cover"
+                          />
+                        ) : (
+                          <div className="bg-muted text-muted-foreground flex h-12 w-12 items-center justify-center rounded-md">
+                            <ImagePlus className="h-4 w-4" />
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate py-3 font-semibold">
+                        {p.name}
+                      </TableCell>
+                      <TableCell className="py-3 text-sm whitespace-nowrap">
+                        {p.productKind ? PRODUCT_KIND_LABELS[p.productKind] : '—'}
+                      </TableCell>
+                      <TableCell className="py-3 whitespace-nowrap">{p.category.name}</TableCell>
+                      <TableCell className="py-3 whitespace-nowrap tabular-nums">
+                        {formatPrice(p.price)}
+                      </TableCell>
+                      <TableCell className="py-3">
+                        <div className="flex gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="animate-none"
+                            onClick={() => {
+                              clearPendingImages(setEditPendingImages);
+                              setEditProduct({ ...p });
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive animate-none"
+                            onClick={() => void handleDeleteProduct(p.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </div>
-            )}
+              </TableBody>
+            </Table>
           </div>
-        </div>
-      )}
+        )}
+      </section>
 
-      {editProduct && (
-        <div className="bg-background/80 fixed inset-0 z-50 flex items-center justify-center p-4">
-          <form
-            onSubmit={(e) => void handleUpdateProduct(e)}
-            className="bg-card border-border w-full max-w-md rounded-xl border p-5 shadow-lg"
-          >
-            <div className="mb-4 flex items-start justify-between">
-              <h3 className="font-semibold">Editar producto</h3>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="animate-none"
-                onClick={() => setEditProduct(null)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <Label>Nombre</Label>
+      <Dialog
+        open={createProductOpen}
+        onOpenChange={(open) => {
+          setCreateProductOpen(open);
+          if (!open) resetProductForm();
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Agregar producto</DialogTitle>
+            <DialogDescription>
+              Marcas y modelos son opcionales (útiles en retail). La vitrina se configura aparte.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={(e) => void handleCreateProduct(e)} className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="product-name">Nombre</Label>
                 <Input
-                  value={editProduct.name}
-                  onChange={(e) => setEditProduct({ ...editProduct, name: e.target.value })}
+                  id="product-name"
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
                   required
+                  autoFocus
                 />
               </div>
-              <div>
-                <Label>Precio</Label>
+              <div className="space-y-2">
+                <Label htmlFor="product-price">Precio</Label>
                 <Input
+                  id="product-price"
                   type="number"
                   step="0.01"
-                  value={editProduct.price}
-                  onChange={(e) => setEditProduct({ ...editProduct, price: e.target.value })}
+                  min="0"
+                  value={productPrice}
+                  onChange={(e) => setProductPrice(e.target.value)}
                   required
                 />
               </div>
-              <div>
-                <Label>Tipo</Label>
+              <div className="space-y-2">
+                <Label htmlFor="product-kind">Tipo de producto</Label>
                 <select
-                  className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
-                  value={editProduct.productKind ?? 'RETAIL'}
-                  onChange={(e) =>
-                    setEditProduct({
-                      ...editProduct,
-                      productKind: e.target.value as ProductKind,
-                    })
-                  }
+                  id="product-kind"
+                  className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                  value={productKind}
+                  onChange={(e) => {
+                    const kind = e.target.value as ProductKind;
+                    setProductKind(kind);
+                    if (kind === 'MENU') {
+                      setProductBrandId('');
+                      setProductModelId('');
+                    }
+                  }}
                 >
                   {(Object.keys(PRODUCT_KIND_LABELS) as ProductKind[]).map((kind) => (
                     <option key={kind} value={kind}>
@@ -769,87 +850,359 @@ export function CompanyCatalogPanel({
                   ))}
                 </select>
               </div>
-              <div>
-                <Label>Descripción</Label>
-                <Input
-                  value={editProduct.description ?? ''}
-                  onChange={(e) => setEditProduct({ ...editProduct, description: e.target.value })}
+              <div className="space-y-2 sm:col-span-2">
+                <FormattedTextarea
+                  id="product-description"
+                  label={`Descripción ${productKind === 'MENU' ? '(plato / ítem)' : '(opcional)'}`}
+                  value={productDescription}
+                  onChange={setProductDescription}
+                  placeholder={
+                    productKind === 'MENU' ? 'Ej. Con leche de almendras' : 'Detalle del producto'
+                  }
+                  rows={4}
                 />
               </div>
-              <Button type="submit" className="w-full animate-none">
-                Guardar cambios
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {imageProduct && (
-        <div className="bg-background/80 fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="bg-card border-border w-full max-w-md rounded-xl border p-5 shadow-lg">
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <h3 className="font-semibold">Imágenes — {imageProduct.name}</h3>
-                <p className="text-muted-foreground text-xs">JPG, PNG o WebP</p>
+              <div className="space-y-2">
+                <Label htmlFor="product-category">Categoría existente</Label>
+                <select
+                  id="product-category"
+                  className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                  value={categoryId}
+                  onChange={(e) => {
+                    setCategoryId(e.target.value);
+                    if (e.target.value) setNewCategoryName('');
+                  }}
+                >
+                  <option value="">Seleccionar...</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-new-category">O nueva categoría</Label>
+                <Input
+                  id="product-new-category"
+                  value={newCategoryName}
+                  onChange={(e) => {
+                    setNewCategoryName(e.target.value);
+                    if (e.target.value) setCategoryId('');
+                  }}
+                  placeholder="Se crea si no existe"
+                  disabled={!!categoryId}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-status">Estado</Label>
+                <select
+                  id="product-status"
+                  className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                  value={productStatus}
+                  onChange={(e) => setProductStatus(Number(e.target.value) as ProductStatus)}
+                >
+                  {(
+                    [
+                      PRODUCT_STATUS.ACTIVE,
+                      PRODUCT_STATUS.INACTIVE,
+                      PRODUCT_STATUS.DRAFT,
+                    ] as ProductStatus[]
+                  ).map((status) => (
+                    <option key={status} value={status}>
+                      {PRODUCT_STATUS_LABELS[status]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {productKind === 'RETAIL' && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="product-brand">Marca (opcional)</Label>
+                    <select
+                      id="product-brand"
+                      className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                      value={productBrandId}
+                      onChange={(e) => {
+                        setProductBrandId(e.target.value);
+                        setProductModelId('');
+                      }}
+                    >
+                      <option value="">Sin marca</option>
+                      {brands.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="product-model">Modelo (opcional)</Label>
+                    <select
+                      id="product-model"
+                      className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                      value={productModelId}
+                      onChange={(e) => setProductModelId(e.target.value)}
+                      disabled={!productBrandId}
+                    >
+                      <option value="">Sin modelo</option>
+                      {models
+                        .filter((m) => !productBrandId || m.brandId === productBrandId)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </>
+              )}
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Imágenes *</Label>
+                <p className="text-muted-foreground text-xs">Al menos una foto. JPG, PNG o WebP.</p>
+                {pendingImages.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {pendingImages.map((img) => (
+                      <div
+                        key={img.id}
+                        className="border-border relative overflow-hidden rounded-lg border"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={img.previewUrl}
+                          alt=""
+                          className="aspect-square w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          className="bg-background/90 absolute top-1 right-1 rounded-full p-1 shadow"
+                          onClick={() => removePendingImage(img.id, setPendingImages)}
+                          aria-label="Quitar imagen"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <label className="border-input hover:bg-muted/50 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-5 text-sm">
+                  <ImagePlus className="h-4 w-4" />
+                  {pendingImages.length ? 'Agregar más fotos' : 'Seleccionar imágenes'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      appendPendingImages(e.target.files, setPendingImages);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+            <DialogFooter>
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
+                variant="outline"
                 className="animate-none"
-                onClick={() => setImageProduct(null)}
+                onClick={() => setCreateProductOpen(false)}
               >
-                <X className="h-4 w-4" />
+                Cancelar
               </Button>
-            </div>
+              <Button type="submit" className="animate-none" disabled={saving}>
+                {saving ? 'Guardando...' : 'Crear producto'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-            {imageProduct.images?.length ? (
-              <div className="mb-4 grid grid-cols-3 gap-2">
-                {imageProduct.images.map((img) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={img.id}
-                    src={img.url}
-                    alt=""
-                    className="border-border aspect-square rounded border object-cover"
+      <Dialog
+        open={Boolean(editProduct)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditProduct(null);
+            clearPendingImages(setEditPendingImages);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar producto</DialogTitle>
+            <DialogDescription>
+              Actualiza los datos e imágenes. La primera foto queda como principal.
+            </DialogDescription>
+          </DialogHeader>
+          {editProduct && (
+            <form onSubmit={(e) => void handleUpdateProduct(e)} className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Nombre</Label>
+                  <Input
+                    value={editProduct.name}
+                    onChange={(e) => setEditProduct({ ...editProduct, name: e.target.value })}
+                    required
                   />
-                ))}
+                </div>
+                <div className="space-y-2">
+                  <Label>Precio</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={editProduct.price}
+                    onChange={(e) => setEditProduct({ ...editProduct, price: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Tipo</Label>
+                  <select
+                    className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                    value={editProduct.productKind ?? 'RETAIL'}
+                    onChange={(e) =>
+                      setEditProduct({
+                        ...editProduct,
+                        productKind: e.target.value as ProductKind,
+                      })
+                    }
+                  >
+                    {(Object.keys(PRODUCT_KIND_LABELS) as ProductKind[]).map((kind) => (
+                      <option key={kind} value={kind}>
+                        {PRODUCT_KIND_LABELS[kind]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Estado</Label>
+                  <select
+                    className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                    value={editProduct.status ?? PRODUCT_STATUS.ACTIVE}
+                    onChange={(e) =>
+                      setEditProduct({
+                        ...editProduct,
+                        status: Number(e.target.value) as ProductStatus,
+                      })
+                    }
+                  >
+                    {(
+                      [
+                        PRODUCT_STATUS.ACTIVE,
+                        PRODUCT_STATUS.INACTIVE,
+                        PRODUCT_STATUS.DRAFT,
+                      ] as ProductStatus[]
+                    ).map((status) => (
+                      <option key={status} value={status}>
+                        {PRODUCT_STATUS_LABELS[status]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <FormattedTextarea
+                    id="edit-product-description"
+                    label="Descripción"
+                    value={editProduct.description ?? ''}
+                    onChange={(description) => setEditProduct({ ...editProduct, description })}
+                    rows={4}
+                  />
+                </div>
               </div>
-            ) : (
-              <p className="text-muted-foreground mb-4 text-sm">Sin imágenes aún.</p>
-            )}
 
-            <label className="border-input hover:bg-muted/50 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-sm">
-              <ImagePlus className="h-4 w-4" />
-              {uploadingImage ? 'Subiendo...' : 'Seleccionar imagen'}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={uploadingImage}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleUploadImage(file);
-                  e.target.value = '';
-                }}
-              />
-            </label>
-          </div>
-        </div>
-      )}
+              <div className="space-y-2">
+                <Label>Imágenes</Label>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {(editProduct.images ?? []).map((img) => (
+                    <div
+                      key={img.id}
+                      className="border-border relative overflow-hidden rounded-lg border"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={resolveMediaUrl(img.url)}
+                        alt=""
+                        className="aspect-square w-full object-cover"
+                      />
+                      {img.isPrimary && (
+                        <span className="bg-primary text-primary-foreground absolute bottom-1 left-1 rounded px-1 text-[10px] font-medium">
+                          Principal
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="bg-background/90 absolute top-1 right-1 rounded-full p-1 shadow disabled:opacity-50"
+                        disabled={uploadingImage}
+                        onClick={() => void handleDeleteProductImage(img.id)}
+                        aria-label="Eliminar imagen"
+                      >
+                        <Trash2 className="text-destructive h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {editPendingImages.map((img) => (
+                    <div
+                      key={img.id}
+                      className="border-border relative overflow-hidden rounded-lg border border-dashed"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={img.previewUrl}
+                        alt=""
+                        className="aspect-square w-full object-cover"
+                      />
+                      <span className="bg-muted absolute bottom-1 left-1 rounded px-1 text-[10px]">
+                        Nueva
+                      </span>
+                      <button
+                        type="button"
+                        className="bg-background/90 absolute top-1 right-1 rounded-full p-1 shadow"
+                        onClick={() => removePendingImage(img.id, setEditPendingImages)}
+                        aria-label="Quitar imagen"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <label className="border-input hover:bg-muted/50 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-5 text-sm">
+                  <ImagePlus className="h-4 w-4" />
+                  Agregar imágenes
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      appendPendingImages(e.target.files, setEditPendingImages);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
 
-      {toastMessage && (
-        <div
-          className={`fixed right-6 bottom-6 z-50 flex items-center gap-2 rounded-xl px-4 py-3 shadow-lg ${
-            toastIsError
-              ? 'bg-destructive text-destructive-foreground'
-              : 'bg-primary text-primary-foreground'
-          }`}
-        >
-          {!toastIsError && <CheckCircle2 className="h-4 w-4" />}
-          <span className="text-sm font-semibold">{toastMessage}</span>
-        </div>
-      )}
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="animate-none"
+                  onClick={() => {
+                    setEditProduct(null);
+                    clearPendingImages(setEditPendingImages);
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" className="animate-none" disabled={saving || uploadingImage}>
+                  {saving ? 'Guardando...' : 'Guardar cambios'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {toastNode}
     </div>
   );
 }

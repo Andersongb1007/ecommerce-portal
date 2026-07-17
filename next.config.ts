@@ -4,13 +4,13 @@ import { env } from './src/lib/validation/env';
 const apiUrl = env.NEXT_PUBLIC_API_URL;
 const cspHeader = `
   default-src 'self';
-  connect-src 'self' ${apiUrl} http://localhost:3001 http://127.0.0.1:3001;
+  connect-src 'self' ${apiUrl} http://localhost:8080 http://127.0.0.1:8080;
   script-src 'self' 'unsafe-eval' 'unsafe-inline';
   style-src 'self' 'unsafe-inline';
-  img-src 'self' blob: data: ${apiUrl} http://localhost:3001 http://127.0.0.1:3001;
+  img-src 'self' blob: data: ${apiUrl} http://localhost:8080 http://127.0.0.1:8080;
   font-src 'self';
   object-src 'none';
-  frame-src 'self' ${apiUrl} http://localhost:3001 http://127.0.0.1:3001;
+  frame-src 'self' ${apiUrl} http://localhost:8080 http://127.0.0.1:8080;
   base-uri 'self';
   form-action 'self';
   frame-ancestors 'none';
@@ -20,6 +20,14 @@ const cspHeader = `
   .trim();
 
 const nextConfig: NextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: '/files/:path*',
+        destination: `${apiUrl}/files/:path*`,
+      },
+    ];
+  },
   async headers() {
     return [
       {

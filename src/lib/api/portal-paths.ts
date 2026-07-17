@@ -11,6 +11,10 @@ export const portalPaths = {
     meProfile: '/portal/users/me/profile',
     mePassword: '/portal/users/me/password',
   },
+  companies: {
+    me: '/portal/companies/me',
+    meOnboarding: '/portal/companies/me/onboarding',
+  },
   services: {
     list: '/portal/services',
   },
@@ -19,11 +23,9 @@ export const portalPaths = {
       list: '/portal/catalog/categories',
     },
     companyBrands: (companyId: string) => `/portal/companies/${companyId}/brands`,
-    companyBrand: (companyId: string, id: string) =>
-      `/portal/companies/${companyId}/brands/${id}`,
+    companyBrand: (companyId: string, id: string) => `/portal/companies/${companyId}/brands/${id}`,
     companyModels: (companyId: string) => `/portal/companies/${companyId}/models`,
-    companyModel: (companyId: string, id: string) =>
-      `/portal/companies/${companyId}/models/${id}`,
+    companyModel: (companyId: string, id: string) => `/portal/companies/${companyId}/models/${id}`,
     companyProducts: (companyId: string) => `/portal/companies/${companyId}/products`,
     companyProduct: (companyId: string, id: string) =>
       `/portal/companies/${companyId}/products/${id}`,

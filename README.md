@@ -6,15 +6,15 @@ Construido con **Next.js 16 (App Router)**, **TypeScript**, **Tailwind CSS v4** 
 
 ## Rutas
 
-| Ruta | Descripción |
-|------|-------------|
+| Ruta             | Descripción                           |
+| ---------------- | ------------------------------------- |
 | `/auth/register` | Registro de empresa (multipart + RIF) |
-| `/auth/login` | Inicio de sesión |
-| `/` | Dashboard con TODOs del comercio |
-| `/company` | Datos de la empresa |
-| `/products` | Catálogo (productos, marcas, modelos) |
-| `/storefront` | Vitrina pública |
-| `/settings` | Perfil y seguridad |
+| `/auth/login`    | Inicio de sesión                      |
+| `/`              | Dashboard con TODOs del comercio      |
+| `/company`       | Datos de la empresa                   |
+| `/products`      | Catálogo (productos, marcas, modelos) |
+| `/storefront`    | Vitrina pública                       |
+| `/settings`      | Perfil y seguridad                    |
 
 API backend: prefijo `/portal/*` (BFF en `/api/bff/*`).
 
@@ -27,7 +27,16 @@ pnpm dev
 
 Por defecto corre en [http://localhost:3002](http://localhost:3002).
 
+## Puertos del ecosistema
+
+| App                            | Puerto   | Comando                           |
+| ------------------------------ | -------- | --------------------------------- |
+| API (`ecommerce-api`)          | **8080** | `npm start` / `npm run start:dev` |
+| Admin (`ecommerce-admin`)      | **3000** | `pnpm dev`                        |
+| App clientes (`ecommerce-app`) | **3001** | `pnpm dev`                        |
+| Portal (`ecommerce-portal`)    | **3002** | `pnpm dev`                        |
+
 Variables:
 
-- `NEXT_PUBLIC_API_URL` (default `http://localhost:3001`)
+- `NEXT_PUBLIC_API_URL` (default `http://localhost:8080`)
 - `NEXT_PUBLIC_APP_URL` (default `http://localhost:3002`)

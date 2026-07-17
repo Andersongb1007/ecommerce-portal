@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { phoneRegex, rifRegex } from './business';
+import { cedulaSchema, phoneSchema, rifSchema } from './business';
 
-export const cedulaRegex = /^[VE]-\d{5,9}$/i;
+export { cedulaRegex, rifRegex } from './business';
+
 export const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
 
 export const loginSchema = z.object({
@@ -13,13 +14,9 @@ export const forgotPasswordSchema = z.object({
   email: z.string().email({ message: 'El correo electrónico no es válido' }),
 });
 
-const companySlugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-/** Registro de comercio (accountType=2) para el portal OWNER. */
+/** Registro mínimo COMPANY: email, password, rif (+ rifDocument en multipart). */
 export const companyRegisterSchema = z.object({
   accountType: z.literal(2),
-  firstName: z.string().min(2, { message: 'El nombre debe tener al menos 2 caracteres' }),
-  lastName: z.string().min(2, { message: 'El apellido debe tener al menos 2 caracteres' }),
   email: z.string().email({ message: 'El correo electrónico no es válido' }),
   password: z
     .string()
@@ -27,27 +24,18 @@ export const companyRegisterSchema = z.object({
     .regex(strongPasswordRegex, {
       message: 'Debe incluir al menos una mayúscula, una minúscula y un número',
     }),
-  cedula: z
-    .string()
-    .regex(cedulaRegex, { message: 'Formato de cédula inválido (ej: V-12345678)' })
-    .transform((v) => v.toUpperCase()),
-  phoneNumber: z.string().regex(phoneRegex, {
-    message: 'El teléfono debe usar formato internacional (ej: +584121234567)',
-  }),
+  rif: rifSchema,
+});
+
+/** Completar datos post-registro. */
+export const companyOnboardingSchema = z.object({
+  firstName: z.string().min(2, { message: 'El nombre debe tener al menos 2 caracteres' }),
+  lastName: z.string().min(2, { message: 'El apellido debe tener al menos 2 caracteres' }),
+  cedula: cedulaSchema,
+  phoneNumber: phoneSchema,
   name: z.string().min(2, { message: 'El nombre de la empresa es obligatorio' }),
-  slug: z
-    .string()
-    .min(3)
-    .max(60)
-    .regex(companySlugRegex, {
-      message: 'Slug en minúsculas, números y guiones (ej: mi-tienda)',
-    }),
-  rif: z
-    .string()
-    .regex(rifRegex, { message: 'Formato de RIF inválido (ej: J-12345678-9)' })
-    .transform((v) => v.toUpperCase()),
   address: z.string().min(5, { message: 'La dirección es obligatoria' }),
-  bioDescription: z.string().max(150).optional(),
+  bioDescription: z.string().max(10000).optional(),
   themeColor: z
     .string()
     .regex(/^#[0-9A-Fa-f]{6}$/, { message: 'Color hexadecimal inválido' })
@@ -58,17 +46,9 @@ export const adminProfileSchema = z.object({
   firstName: z.string().min(2, { message: 'El nombre debe tener al menos 2 caracteres' }),
   lastName: z.string().min(2, { message: 'El apellido debe tener al menos 2 caracteres' }),
   email: z.string().email({ message: 'El correo electrónico no es válido' }),
-  phoneNumber: z.string().regex(phoneRegex, {
-    message: 'El teléfono debe usar formato internacional (ej: +584121234567)',
-  }),
-  cedula: z
-    .string()
-    .regex(cedulaRegex, { message: 'Formato de cédula inválido (ej: V-12345678)' })
-    .transform((v) => v.toUpperCase()),
-  rif: z
-    .string()
-    .regex(rifRegex, { message: 'Formato de RIF inválido (ej: J-12345678-9)' })
-    .transform((v) => v.toUpperCase()),
+  phoneNumber: phoneSchema,
+  cedula: cedulaSchema,
+  rif: rifSchema,
 });
 
 export const changePasswordFormSchema = z

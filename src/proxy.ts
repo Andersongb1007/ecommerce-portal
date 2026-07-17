@@ -9,6 +9,9 @@ import {
   getSecureCookieOptions,
   refreshTokensWithBackend,
 } from '@/lib/auth/refreshTokens';
+import { env } from '@/lib/validation/env';
+import { portalPaths } from '@/lib/api/portal-paths';
+import { isCompanyOnboardingComplete } from '@/lib/auth/company-status';
 
 function applyRefreshedCookies(
   response: NextResponse,
@@ -58,6 +61,57 @@ function continueWithRefreshedAccess(
   return response;
 }
 
+async function needsOnboarding(accessToken: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${env.NEXT_PUBLIC_API_URL}${portalPaths.companies.me}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    });
+
+    if (response.status === 404) {
+      return true;
+    }
+    if (!response.ok) {
+      return false;
+    }
+
+    const company = (await response.json()) as { onboardingCompletedAt?: string | null };
+    return !isCompanyOnboardingComplete(company);
+  } catch (err) {
+    logger.warn({ msg: 'No se pudo verificar onboarding en proxy', err });
+    return false;
+  }
+}
+
+async function guardOnboarding(
+  request: NextRequest,
+  accessToken: string,
+  tokens?: { accessToken: string; refreshToken: string }
+) {
+  const { pathname } = request.nextUrl;
+  const isOnboardingPage = pathname.startsWith('/onboarding');
+  const isAuthPage = pathname.startsWith('/auth');
+  const isSettings = pathname.startsWith('/settings');
+
+  if (isAuthPage || isOnboardingPage || isSettings) {
+    if (isOnboardingPage) {
+      return continueWithRefreshedAccess(request, accessToken, tokens);
+    }
+    return tokens ? continueWithRefreshedAccess(request, accessToken, tokens) : NextResponse.next();
+  }
+
+  const incomplete = await needsOnboarding(accessToken);
+  if (incomplete) {
+    const response = NextResponse.redirect(new URL('/onboarding', request.url));
+    if (tokens) {
+      applyRefreshedCookies(response, tokens);
+    }
+    return response;
+  }
+
+  return tokens ? continueWithRefreshedAccess(request, accessToken, tokens) : NextResponse.next();
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAuthPage = pathname.startsWith('/auth');
@@ -67,11 +121,12 @@ export async function proxy(request: NextRequest) {
   const accessTokenValid = isJwtUsable(accessToken);
 
   if (accessTokenValid && isAuthPage) {
-    return NextResponse.redirect(new URL('/', request.url));
+    const incomplete = await needsOnboarding(accessToken!);
+    return NextResponse.redirect(new URL(incomplete ? '/onboarding' : '/', request.url));
   }
 
   if (accessTokenValid) {
-    return NextResponse.next();
+    return guardOnboarding(request, accessToken!);
   }
 
   if (refreshToken) {
@@ -79,11 +134,14 @@ export async function proxy(request: NextRequest) {
 
     if (tokens) {
       if (isAuthPage) {
-        const response = NextResponse.redirect(new URL('/', request.url));
+        const incomplete = await needsOnboarding(tokens.accessToken);
+        const response = NextResponse.redirect(
+          new URL(incomplete ? '/onboarding' : '/', request.url)
+        );
         return applyRefreshedCookies(response, tokens);
       }
 
-      return continueWithRefreshedAccess(request, tokens.accessToken, tokens);
+      return guardOnboarding(request, tokens.accessToken, tokens);
     }
 
     logger.warn({ msg: 'Refresh de sesión fallido en proxy', pathname });

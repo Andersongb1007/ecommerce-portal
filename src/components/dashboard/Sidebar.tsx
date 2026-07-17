@@ -12,6 +12,8 @@ import {
   X,
   Store,
   LogOut,
+  Tag,
+  Layers,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from './ThemeToggle';
@@ -21,6 +23,8 @@ const menuItems = [
   { href: '/', label: 'Inicio', icon: LayoutDashboard },
   { href: '/company', label: 'Mi empresa', icon: Building2 },
   { href: '/products', label: 'Productos', icon: Package },
+  { href: '/brands', label: 'Marcas', icon: Tag },
+  { href: '/models', label: 'Modelos', icon: Layers },
   { href: '/storefront', label: 'Vitrina', icon: Store },
   { href: '/settings', label: 'Ajustes', icon: Settings },
 ];
@@ -46,8 +50,11 @@ export function Sidebar() {
   return (
     <>
       <div className="bg-card text-card-foreground flex items-center justify-between border-b px-4 py-3 md:hidden">
-        <Link href="/" className="text-foreground text-xl font-bold tracking-tight">
-          PortalEmpresa
+        <Link
+          href="/"
+          className="text-foreground font-display text-xl font-semibold tracking-tight"
+        >
+          Vitrina
         </Link>
         <Button
           variant="ghost"
@@ -76,8 +83,8 @@ export function Sidebar() {
         }`}
       >
         <div className="flex h-16 flex-col justify-center border-b px-6">
-          <Link href="/" className="text-primary text-xl font-bold tracking-tight">
-            PortalEmpresa
+          <Link href="/" className="text-primary font-display text-xl font-semibold tracking-tight">
+            Vitrina
           </Link>
           {companyName && (
             <span className="text-muted-foreground truncate text-xs">{companyName}</span>
@@ -87,8 +94,7 @@ export function Sidebar() {
         <nav className="flex-1 space-y-1 px-4 py-6" aria-label="Navegación del portal">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive =
-              item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+            const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
             return (
               <Link
                 key={item.href}

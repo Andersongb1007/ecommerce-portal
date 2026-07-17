@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { apiRequest } from './client';
 import {
-  AppError,
   UnauthorizedError,
   ForbiddenError,
   NotFoundError,
@@ -11,8 +10,11 @@ import {
 // Mockear variables de entorno para los tests
 vi.mock('@/lib/validation/env', () => ({
   env: {
-    NEXT_PUBLIC_API_URL: 'http://localhost:3001',
-    NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
+    NEXT_PUBLIC_API_URL: 'http://localhost:8080',
+    NEXT_PUBLIC_APP_URL: 'http://localhost:3002',
+    NEXT_PUBLIC_ADMIN_URL: 'http://localhost:3000',
+    NEXT_PUBLIC_CUSTOMER_APP_URL: 'http://localhost:3001',
+    NEXT_PUBLIC_PORTAL_URL: 'http://localhost:3002',
   },
 }));
 
@@ -40,7 +42,7 @@ describe('apiRequest client test suite', () => {
     const result = await apiRequest<{ data: string }>('/test-route');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://localhost:3001/test-route',
+      'http://localhost:8080/test-route',
       expect.objectContaining({
         headers: expect.any(Headers),
       })
