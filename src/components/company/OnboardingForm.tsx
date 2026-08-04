@@ -105,6 +105,14 @@ export function OnboardingForm({ initialCompany }: OnboardingFormProps) {
               Con estos datos un administrador podrá revisar y aprobar tu cuenta.
               {initialCompany?.rif ? ` RIF registrado: ${initialCompany.rif}` : ''}
             </p>
+            <div className="border-border bg-muted/40 mt-4 rounded-xl border px-3 py-3 text-xs leading-relaxed">
+              <p className="text-foreground font-semibold">Consejo según tu tipo de negocio</p>
+              <p className="text-muted-foreground mt-1">
+                Si eres restaurante o cafetería, prioriza descripción corta, color de marca y luego
+                una vitrina tipo menú por categorías. Si eres retail o tienda, completa el perfil y
+                después organiza marcas, modelos y plantilla de cuadrícula o tarjetas.
+              </p>
+            </div>
           </header>
 
           <form

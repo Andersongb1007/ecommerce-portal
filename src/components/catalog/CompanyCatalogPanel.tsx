@@ -711,82 +711,147 @@ export function CompanyCatalogPanel({
           <span className="text-muted-foreground font-normal">({products.length})</span>
         </h2>
         {products.length === 0 ? (
-          <p className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm">
-            No hay productos. Usa el botón para agregar el primero.
-          </p>
-        ) : (
-          <div className="border-border overflow-x-auto rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-16">Foto</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead>Precio</TableHead>
-                  <TableHead className="w-28" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {products.map((p) => {
-                  const thumb = p.images?.find((i) => i.isPrimary) ?? p.images?.[0];
-                  return (
-                    <TableRow key={p.id}>
-                      <TableCell className="py-2">
-                        {thumb ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={resolveMediaUrl(thumb.url)}
-                            alt=""
-                            className="border-border h-12 w-12 rounded-md border object-cover"
-                          />
-                        ) : (
-                          <div className="bg-muted text-muted-foreground flex h-12 w-12 items-center justify-center rounded-md">
-                            <ImagePlus className="h-4 w-4" />
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate py-3 font-semibold">
-                        {p.name}
-                      </TableCell>
-                      <TableCell className="py-3 text-sm whitespace-nowrap">
-                        {p.productKind ? PRODUCT_KIND_LABELS[p.productKind] : '—'}
-                      </TableCell>
-                      <TableCell className="py-3 whitespace-nowrap">{p.category.name}</TableCell>
-                      <TableCell className="py-3 whitespace-nowrap tabular-nums">
-                        {formatPrice(p.price)}
-                      </TableCell>
-                      <TableCell className="py-3">
-                        <div className="flex gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="animate-none"
-                            onClick={() => {
-                              clearPendingImages(setEditPendingImages);
-                              setEditProduct({ ...p });
-                            }}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive animate-none"
-                            onClick={() => void handleDeleteProduct(p.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+          <div className="rounded-xl border border-dashed p-8 text-center">
+            <p className="text-muted-foreground text-sm">Aún no tienes productos en el catálogo.</p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Crea el primero o configura marcas y la vitrina pública.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <Button type="button" onClick={() => setCreateProductOpen(true)}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                Agregar producto
+              </Button>
+              <Link
+                href="/storefront"
+                className="border-border bg-background hover:bg-muted inline-flex h-8 items-center rounded-lg border px-2.5 text-sm font-medium"
+              >
+                Ir a vitrina
+              </Link>
+              <Link
+                href="/brands"
+                className="border-border bg-background hover:bg-muted inline-flex h-8 items-center rounded-lg border px-2.5 text-sm font-medium"
+              >
+                Gestionar marcas
+              </Link>
+            </div>
           </div>
+        ) : (
+          <>
+            <div className="space-y-3 md:hidden">
+              {products.map((p) => {
+                const thumb = p.images?.find((i) => i.isPrimary) ?? p.images?.[0];
+                return (
+                  <article key={p.id} className="border-border flex gap-3 rounded-xl border p-3">
+                    {thumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={resolveMediaUrl(thumb.url)}
+                        alt=""
+                        className="border-border h-16 w-16 shrink-0 rounded-md border object-cover"
+                      />
+                    ) : (
+                      <div className="bg-muted text-muted-foreground flex h-16 w-16 shrink-0 items-center justify-center rounded-md">
+                        <ImagePlus className="h-4 w-4" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{p.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {p.productKind ? PRODUCT_KIND_LABELS[p.productKind] : '—'} ·{' '}
+                        {p.category.name}
+                      </p>
+                      <p className="mt-1 font-semibold tabular-nums">{formatPrice(p.price)}</p>
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            clearPendingImages(setEditPendingImages);
+                            setEditProduct({ ...p });
+                          }}
+                        >
+                          Editar
+                        </Button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="border-border hidden overflow-x-auto rounded-xl border md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-16">Foto</TableHead>
+                    <TableHead>Producto</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Categoría</TableHead>
+                    <TableHead>Precio</TableHead>
+                    <TableHead className="w-28" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {products.map((p) => {
+                    const thumb = p.images?.find((i) => i.isPrimary) ?? p.images?.[0];
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell className="py-2">
+                          {thumb ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={resolveMediaUrl(thumb.url)}
+                              alt=""
+                              className="border-border h-12 w-12 rounded-md border object-cover"
+                            />
+                          ) : (
+                            <div className="bg-muted text-muted-foreground flex h-12 w-12 items-center justify-center rounded-md">
+                              <ImagePlus className="h-4 w-4" />
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate py-3 font-semibold">
+                          {p.name}
+                        </TableCell>
+                        <TableCell className="py-3 text-sm whitespace-nowrap">
+                          {p.productKind ? PRODUCT_KIND_LABELS[p.productKind] : '—'}
+                        </TableCell>
+                        <TableCell className="py-3 whitespace-nowrap">{p.category.name}</TableCell>
+                        <TableCell className="py-3 whitespace-nowrap tabular-nums">
+                          {formatPrice(p.price)}
+                        </TableCell>
+                        <TableCell className="py-3">
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="animate-none"
+                              onClick={() => {
+                                clearPendingImages(setEditPendingImages);
+                                setEditProduct({ ...p });
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive animate-none"
+                              onClick={() => void handleDeleteProduct(p.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </section>
 

@@ -73,7 +73,7 @@ export interface StorefrontData {
 
 export const DISPLAY_TEMPLATE_LABELS: Record<string, string> = {
   MENU: 'Menú (restaurante)',
-  GRID: 'Grid (retail)',
+  GRID: 'Cuadrícula (retail)',
   LIST: 'Lista simple',
   CARDS: 'Tarjetas destacadas',
 };

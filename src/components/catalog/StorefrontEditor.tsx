@@ -18,7 +18,15 @@ import {
   type CatalogProduct,
   type StorefrontData,
 } from '@/lib/validation/catalog';
-import { ArrowLeft, CheckCircle2, ImagePlus, LayoutTemplate, Package } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ExternalLink,
+  ImagePlus,
+  LayoutTemplate,
+  Package,
+} from 'lucide-react';
+import { env } from '@/lib/validation/env';
 
 type StorefrontEditorProps = {
   companyId: string;
@@ -69,11 +77,16 @@ export function StorefrontEditor({
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
+  const [previewMode, setPreviewMode] = useState<'local' | 'live'>('live');
 
   const sections = useMemo(() => groupByCategory(products), [products]);
   const accent = themeColor || '#0B3D3A';
   const logoSrc = logoPreview || resolveMediaUrl(storefront?.logoUrl);
   const bannerSrc = bannerPreview || resolveMediaUrl(storefront?.bannerUrl);
+  const livePreviewUrl =
+    storefront?.slug && isPublished
+      ? `${env.NEXT_PUBLIC_CUSTOMER_APP_URL.replace(/\/$/, '')}/store/${storefront.slug}`
+      : null;
 
   const triggerToast = (msg: string, error = false) => {
     setToast({ msg, error });
@@ -183,6 +196,10 @@ export function StorefrontEditor({
                 </Button>
               ))}
             </div>
+            <p className="text-muted-foreground text-xs">
+              Define el layout que verán los clientes. Menú oculta fotos/marca; Cuadrícula y
+              Tarjetas destacan imágenes; Lista es compacta.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -205,6 +222,10 @@ export function StorefrontEditor({
                 className="font-mono text-sm"
               />
             </div>
+            <p className="text-muted-foreground text-xs">
+              Se aplica al hero, precios y filtros activos de la vitrina. Elige un color con buen
+              contraste sobre blanco.
+            </p>
           </div>
 
           <FormattedTextarea
@@ -273,14 +294,19 @@ export function StorefrontEditor({
             </div>
           </div>
 
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={isPublished}
-              onChange={(e) => setIsPublished(e.target.checked)}
-              className="accent-primary size-4"
-            />
-            Publicar vitrina (visible a clientes)
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={isPublished}
+                onChange={(e) => setIsPublished(e.target.checked)}
+                className="accent-primary size-4"
+              />
+              Publicar vitrina (visible a clientes)
+            </span>
+            <span className="text-muted-foreground pl-6 text-xs">
+              Si está publicada, aparece en la app de clientes. Si es borrador, solo tú la ves aquí.
+            </span>
           </label>
 
           <Button type="submit" className="w-full animate-none" disabled={saving}>
@@ -289,218 +315,273 @@ export function StorefrontEditor({
         </form>
 
         <div className="border-border bg-muted/20 overflow-hidden rounded-xl border shadow-sm">
-          <div className="border-border bg-card flex items-center justify-between border-b px-4 py-3">
-            <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-              Vista previa · {DISPLAY_TEMPLATE_LABELS[displayTemplate] ?? displayTemplate}
-            </p>
-            <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
-              style={{ backgroundColor: accent }}
-            >
-              {isPublished ? 'Publicada' : 'Borrador'}
-            </span>
-          </div>
-
-          <div className="bg-background max-h-[80vh] overflow-y-auto">
-            {bannerSrc ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={bannerSrc} alt="" className="h-36 w-full object-cover sm:h-48" />
-            ) : (
-              <div className="h-28 w-full sm:h-36" style={{ backgroundColor: accent }} />
-            )}
-
-            <div className="space-y-4 px-4 py-5 sm:px-6">
-              <div className="flex items-end gap-3">
-                {logoSrc ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={logoSrc}
-                    alt=""
-                    className="-mt-12 h-20 w-20 rounded-xl border-4 border-white object-cover shadow-md"
-                  />
-                ) : (
-                  <div
-                    className="-mt-12 flex h-20 w-20 items-center justify-center rounded-xl border-4 border-white text-lg font-bold text-white shadow-md"
-                    style={{ backgroundColor: accent }}
-                  >
-                    {(storefront?.name ?? companyName).slice(0, 1).toUpperCase()}
-                  </div>
-                )}
-                <div className="pb-1">
-                  <h3 className="font-display text-xl font-semibold tracking-tight">
-                    {storefront?.name ?? companyName}
-                  </h3>
-                  {storefront?.slug ? (
-                    <p className="text-muted-foreground text-xs">/{storefront.slug}</p>
-                  ) : null}
-                </div>
+          <div className="border-border bg-card flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                Vista previa
+              </p>
+              <div className="flex rounded-lg border p-0.5">
+                <button
+                  type="button"
+                  className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
+                    previewMode === 'live'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground'
+                  }`}
+                  onClick={() => setPreviewMode('live')}
+                  disabled={!livePreviewUrl}
+                  title={
+                    livePreviewUrl ? 'App clientes real' : 'Publica la vitrina para ver la app real'
+                  }
+                >
+                  App real
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
+                    previewMode === 'local'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground'
+                  }`}
+                  onClick={() => setPreviewMode('local')}
+                >
+                  Borrador local
+                </button>
               </div>
-
-              {bioDescription ? (
-                <RichTextContent html={bioDescription} className="text-muted-foreground" />
-              ) : (
-                <p className="text-muted-foreground text-sm italic">Sin bio todavía.</p>
-              )}
-
-              {products.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-8 text-center">
-                  <p className="text-muted-foreground mb-3 text-sm">
-                    Todavía no hay productos para mostrar.
-                  </p>
-                  <Link href="/products" className={buttonVariants({ className: 'animate-none' })}>
-                    Ir a productos
-                  </Link>
-                </div>
-              ) : displayTemplate === 'MENU' ? (
-                <div className="space-y-6">
-                  {(sections.length ? sections : [{ name: 'Menú', items: products }]).map(
-                    (block) => (
-                      <div key={block.name}>
-                        <h4
-                          className="mb-3 border-b pb-1 text-xs font-bold tracking-wide uppercase"
-                          style={{ borderColor: accent, color: accent }}
-                        >
-                          {block.name}
-                        </h4>
-                        <ul className="space-y-3">
-                          {block.items.map((p) => (
-                            <li key={p.id} className="flex gap-3">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex justify-between gap-3">
-                                  <span className="font-medium">{p.name}</span>
-                                  <span className="shrink-0 font-semibold tabular-nums">
-                                    {formatPrice(p.price)}
-                                  </span>
-                                </div>
-                                {p.description ? (
-                                  <RichTextContent
-                                    html={p.description}
-                                    className="text-muted-foreground mt-1 line-clamp-2 text-xs"
-                                  />
-                                ) : null}
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )
-                  )}
-                </div>
-              ) : displayTemplate === 'LIST' ? (
-                <ul className="divide-border divide-y">
-                  {products.map((p) => {
-                    const img = primaryImage(p);
-                    return (
-                      <li key={p.id} className="flex gap-3 py-3">
-                        {img ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={resolveMediaUrl(img.url)}
-                            alt=""
-                            className="h-16 w-16 shrink-0 rounded-md object-cover"
-                          />
-                        ) : (
-                          <div className="bg-muted flex h-16 w-16 shrink-0 items-center justify-center rounded-md">
-                            <Package className="text-muted-foreground h-5 w-5" />
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex justify-between gap-2">
-                            <p className="truncate font-medium">{p.name}</p>
-                            <span className="shrink-0 font-semibold tabular-nums">
-                              {formatPrice(p.price)}
-                            </span>
-                          </div>
-                          {p.description ? (
-                            <RichTextContent
-                              html={p.description}
-                              className="text-muted-foreground mt-1 line-clamp-2 text-xs"
-                            />
-                          ) : null}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : displayTemplate === 'CARDS' ? (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {products.slice(0, 6).map((p) => {
-                    const img = primaryImage(p);
-                    return (
-                      <article
-                        key={p.id}
-                        className="border-border overflow-hidden rounded-xl border bg-white shadow-sm"
-                      >
-                        {img ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={resolveMediaUrl(img.url)}
-                            alt={p.name}
-                            className="h-44 w-full object-cover"
-                          />
-                        ) : (
-                          <div className="bg-muted flex h-44 items-center justify-center">
-                            <Package className="text-muted-foreground h-8 w-8" />
-                          </div>
-                        )}
-                        <div className="space-y-2 p-4">
-                          <h4 className="font-semibold">{p.name}</h4>
-                          {p.description ? (
-                            <RichTextContent
-                              html={p.description}
-                              className="text-muted-foreground line-clamp-3 text-xs"
-                            />
-                          ) : null}
-                          <p className="text-lg font-bold tabular-nums" style={{ color: accent }}>
-                            {formatPrice(p.price)}
-                          </p>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {products.slice(0, 9).map((p) => {
-                    const img = primaryImage(p);
-                    return (
-                      <div
-                        key={p.id}
-                        className="border-border overflow-hidden rounded-lg border bg-white"
-                      >
-                        {img ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={resolveMediaUrl(img.url)}
-                            alt={p.name}
-                            className="h-28 w-full object-cover sm:h-32"
-                          />
-                        ) : (
-                          <div className="bg-muted flex h-28 items-center justify-center sm:h-32">
-                            <Package className="text-muted-foreground h-6 w-6" />
-                          </div>
-                        )}
-                        <div className="space-y-0.5 p-2.5">
-                          <p className="truncate text-sm font-medium">{p.name}</p>
-                          <p
-                            className="text-sm font-semibold tabular-nums"
-                            style={{ color: accent }}
-                          >
-                            {formatPrice(p.price)}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {livePreviewUrl ? (
+                <a
+                  href={livePreviewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary inline-flex items-center gap-1 text-[10px] font-semibold underline"
+                >
+                  Abrir <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : null}
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+                style={{ backgroundColor: accent }}
+              >
+                {isPublished ? 'Publicada' : 'Borrador'}
+              </span>
             </div>
           </div>
+
+          {previewMode === 'live' && livePreviewUrl ? (
+            <iframe
+              title="Vista previa app clientes"
+              src={livePreviewUrl}
+              className="bg-background h-[80vh] w-full border-0"
+            />
+          ) : (
+            <div className="bg-background max-h-[80vh] overflow-y-auto">
+              {bannerSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={bannerSrc} alt="" className="h-36 w-full object-cover sm:h-48" />
+              ) : (
+                <div className="h-28 w-full sm:h-36" style={{ backgroundColor: accent }} />
+              )}
+
+              <div className="space-y-4 px-4 py-5 sm:px-6">
+                <div className="flex items-end gap-3">
+                  {logoSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={logoSrc}
+                      alt=""
+                      className="-mt-12 h-20 w-20 rounded-xl border-4 border-white object-cover shadow-md"
+                    />
+                  ) : (
+                    <div
+                      className="-mt-12 flex h-20 w-20 items-center justify-center rounded-xl border-4 border-white text-lg font-bold text-white shadow-md"
+                      style={{ backgroundColor: accent }}
+                    >
+                      {(storefront?.name ?? companyName).slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="pb-1">
+                    <h3 className="font-display text-xl font-semibold tracking-tight">
+                      {storefront?.name ?? companyName}
+                    </h3>
+                    {storefront?.slug ? (
+                      <p className="text-muted-foreground text-xs">/{storefront.slug}</p>
+                    ) : null}
+                  </div>
+                </div>
+
+                {bioDescription ? (
+                  <RichTextContent html={bioDescription} className="text-muted-foreground" />
+                ) : (
+                  <p className="text-muted-foreground text-sm italic">Sin bio todavía.</p>
+                )}
+
+                {products.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-8 text-center">
+                    <p className="text-muted-foreground mb-3 text-sm">
+                      Todavía no hay productos para mostrar.
+                    </p>
+                    <Link
+                      href="/products"
+                      className={buttonVariants({ className: 'animate-none' })}
+                    >
+                      Ir a productos
+                    </Link>
+                  </div>
+                ) : displayTemplate === 'MENU' ? (
+                  <div className="space-y-6">
+                    {(sections.length ? sections : [{ name: 'Menú', items: products }]).map(
+                      (block) => (
+                        <div key={block.name}>
+                          <h4
+                            className="mb-3 border-b pb-1 text-xs font-bold tracking-wide uppercase"
+                            style={{ borderColor: accent, color: accent }}
+                          >
+                            {block.name}
+                          </h4>
+                          <ul className="space-y-3">
+                            {block.items.map((p) => (
+                              <li key={p.id} className="flex gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex justify-between gap-3">
+                                    <span className="font-medium">{p.name}</span>
+                                    <span className="shrink-0 font-semibold tabular-nums">
+                                      {formatPrice(p.price)}
+                                    </span>
+                                  </div>
+                                  {p.description ? (
+                                    <RichTextContent
+                                      html={p.description}
+                                      className="text-muted-foreground mt-1 line-clamp-2 text-xs"
+                                    />
+                                  ) : null}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )
+                    )}
+                  </div>
+                ) : displayTemplate === 'LIST' ? (
+                  <ul className="divide-border divide-y">
+                    {products.map((p) => {
+                      const img = primaryImage(p);
+                      return (
+                        <li key={p.id} className="flex gap-3 py-3">
+                          {img ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={resolveMediaUrl(img.url)}
+                              alt=""
+                              className="h-16 w-16 shrink-0 rounded-md object-cover"
+                            />
+                          ) : (
+                            <div className="bg-muted flex h-16 w-16 shrink-0 items-center justify-center rounded-md">
+                              <Package className="text-muted-foreground h-5 w-5" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex justify-between gap-2">
+                              <p className="truncate font-medium">{p.name}</p>
+                              <span className="shrink-0 font-semibold tabular-nums">
+                                {formatPrice(p.price)}
+                              </span>
+                            </div>
+                            {p.description ? (
+                              <RichTextContent
+                                html={p.description}
+                                className="text-muted-foreground mt-1 line-clamp-2 text-xs"
+                              />
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : displayTemplate === 'CARDS' ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {products.slice(0, 6).map((p) => {
+                      const img = primaryImage(p);
+                      return (
+                        <article
+                          key={p.id}
+                          className="border-border overflow-hidden rounded-xl border bg-white shadow-sm"
+                        >
+                          {img ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={resolveMediaUrl(img.url)}
+                              alt={p.name}
+                              className="h-44 w-full object-cover"
+                            />
+                          ) : (
+                            <div className="bg-muted flex h-44 items-center justify-center">
+                              <Package className="text-muted-foreground h-8 w-8" />
+                            </div>
+                          )}
+                          <div className="space-y-2 p-4">
+                            <h4 className="font-semibold">{p.name}</h4>
+                            {p.description ? (
+                              <RichTextContent
+                                html={p.description}
+                                className="text-muted-foreground line-clamp-3 text-xs"
+                              />
+                            ) : null}
+                            <p className="text-lg font-bold tabular-nums" style={{ color: accent }}>
+                              {formatPrice(p.price)}
+                            </p>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {products.slice(0, 9).map((p) => {
+                      const img = primaryImage(p);
+                      return (
+                        <div
+                          key={p.id}
+                          className="border-border overflow-hidden rounded-lg border bg-white"
+                        >
+                          {img ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={resolveMediaUrl(img.url)}
+                              alt={p.name}
+                              className="h-28 w-full object-cover sm:h-32"
+                            />
+                          ) : (
+                            <div className="bg-muted flex h-28 items-center justify-center sm:h-32">
+                              <Package className="text-muted-foreground h-6 w-6" />
+                            </div>
+                          )}
+                          <div className="space-y-0.5 p-2.5">
+                            <p className="truncate text-sm font-medium">{p.name}</p>
+                            <p
+                              className="text-sm font-semibold tabular-nums"
+                              style={{ color: accent }}
+                            >
+                              {formatPrice(p.price)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {toast && (
         <div
+          role={toast.error ? 'alert' : 'status'}
+          aria-live={toast.error ? 'assertive' : 'polite'}
           className={`fixed right-6 bottom-6 z-50 flex items-center gap-2 rounded-xl px-4 py-3 shadow-lg ${
             toast.error
               ? 'bg-destructive text-destructive-foreground'

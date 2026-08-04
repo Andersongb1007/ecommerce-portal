@@ -32,7 +32,8 @@ export function SlugPreview({ name, label = 'URL de la tienda', className }: Slu
         </span>
       </div>
       <p className="text-muted-foreground text-xs">
-        Lo genera la API automáticamente a partir del nombre comercial.
+        URL pública de la tienda en la app de clientes (<span className="font-mono">/store/…</span>
+        ). Cámbiala solo vía el nombre comercial: un slug confuso dificulta compartir el enlace.
       </p>
     </div>
   );
